@@ -165,6 +165,14 @@ class Fun(commands.Cog):
             menu = utils.SnakeMenu(player_ids, clear_reactions_after=True)
         await menu.start(ctx, wait=True)  # end typing
 
+    @commands.command(aliases=["rps"])
+    async def rockpaperscissors(self, ctx):
+        """
+        Play a game of rock paper scissors with the bot.
+        """
+        rps = utils.RockPaperScissors()
+        await rps.start(ctx)
+
 
 def setup(bot):
     bot.add_cog(Fun())

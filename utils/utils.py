@@ -12,6 +12,8 @@ import humanize
 import typing
 import textwrap
 
+from contextlib import suppress
+
 
 # helper functions
 
@@ -816,6 +818,57 @@ class TicTacToe:
             await self.msg.add_reaction(reaction)
         await self.msg.edit(content=f"{self.show_board()}**Current Turn**: `{self.turn}`")
         await self.loop()
+
+
+class RockPaperScissors(menus.Menu):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self.embed = None
+
+    async def send_initial_message(self, ctx, channel):
+        self.embed = discord.Embed(
+            title=f"Rock Paper Scissors with `{ctx.author}`",
+            description="React with ✊, ✋, ✌️ or ⏹️ to end the game.",
+            colour=ctx.bot.embed_colour)
+        return await ctx.send(embed=self.embed)
+
+    async def determine_winner(self, user_choice):
+        rps_map = {0: "rock", 1: "paper", 2: "scissors"}
+        winner_map = [
+            [0, 1, -1],
+            [-1, 0, 1],
+            [1, -1, 0]
+        ]
+        messages = {
+            0: "It's a draw!",
+            1: "Congratulations! You won!",
+            -1: "You lost! Better luck next time."
+        }
+
+        bot_choice = random.randint(0, 2)
+        message = messages[winner_map[bot_choice][user_choice]]
+        self.embed.description = f"You drew {rps_map[user_choice]} and I drew {rps_map[bot_choice]}.\n{message}"
+        await self.message.edit(embed=self.embed)
+        self.stop()
+
+    @menus.button("✊")
+    async def rock(self, _):
+        await self.determine_winner(0)
+
+    @menus.button("✋")
+    async def paper(self, _):
+        await self.determine_winner(1)
+
+    @menus.button("✌")
+    async def scissors(self, _):
+        await self.determine_winner(2)
+
+    @menus.button("⏹️")
+    async def stop_menu(self, _):
+        with suppress(discord.HTTPException):
+            await self.message.delete()
+        self.stop()
 
 
 # misc.
