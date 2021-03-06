@@ -5,6 +5,7 @@ import datetime
 
 from discord.ext import commands, menus
 from contextlib import suppress
+from typing import Union
 
 from utils import utils
 from utils.classes import PB_Bot, CustomContext
@@ -38,17 +39,55 @@ class Player(wavelink.Player):
         self.now_playing = None
         self.session_started = False
         self.session_chan = None
+        self.is_locked = False
+        self.dj = None
 
         self.queue = []
         self.menus = []
         self.volume = DEFAULT_VOLUME
         self.queue_position = 0
 
-    async def start(self, ctx: CustomContext):
+    async def start(self, ctx: CustomContext, song: Union[wavelink.TrackPlaylist, list]):
+        # connect to voice
+        try:
+            voice_channel = ctx.author.voice.channel
+        except AttributeError:
+            return await ctx.send("Couldn't find a channel to join. Please join one.")
+        await self.connect(voice_channel.id)
+
+        # add the first song
+        if isinstance(song, wavelink.TrackPlaylist):
+            for track in song.tracks:
+                track = Track(track.id, track.info, requester=ctx.author)
+                self.queue.append(track)
+            now_playing = song.tracks[0]
+        else:
+            track = Track(song[0].id, song[0].info, requester=ctx.author)
+            self.queue.append(track)
+            now_playing = track
+
+        # embed
+        duration = datetime.timedelta(milliseconds=now_playing.length)
+
+        embed = discord.Embed(
+            title=f"Music Session started in `{voice_channel.name}`",
+            description=f"**Now Playing:** {now_playing}\n"
+                        f"**DJ:** {ctx.author}\n"
+                        f"**Duration:** {humanize.precisedelta(duration)}\n"
+                        f"**Volume:** `{self.volume}`\n"
+                        f"**YT Link:** [Click Here!]({now_playing.uri})\n",
+            timestamp=datetime.datetime.now(),
+            colour=ctx.bot.embed_colour)
+        await ctx.send(embed=embed)
+
+        # start playing
+        self.queue_position += 1
+        await self.play(now_playing)
+
+        # finalise
         self.session_chan = ctx.channel
-        await ctx.invoke(ctx.bot.get_command("connect"))
+        self.dj = ctx.author.id
         self.session_started = True
-        await self.do_next()
 
     async def do_next(self):
         with suppress((discord.Forbidden, discord.HTTPException, AttributeError)):
@@ -102,6 +141,29 @@ def is_playing():
         return True
     return commands.check(predicate)
 
+
+def is_privileged():
+    async def predicate(ctx: CustomContext):
+        if not ctx.player.is_locked or not ctx.player.dj:
+            return True
+        if ctx.author.id != ctx.player.dj and not ctx.author.guild_permissions.administrator:
+            await ctx.send("Only admins and the DJ can use this command.")
+            return False
+        return True
+    return commands.check(predicate)
+
+
+def has_to_be_privileged_even_if_not_locked():
+    async def predicate(ctx: CustomContext):
+        if not ctx.player.dj:
+            return True
+        if ctx.author.id != ctx.player.dj and not ctx.author.guild_permissions.administrator:
+            await ctx.send("Only admins and the DJ can use this command.")
+            return False
+        return True
+    return commands.check(predicate)
+
+
 # Controls:
 
 # skip/previous
@@ -117,12 +179,8 @@ class Music(commands.Cog):
     Music commands.
     """
     def __init__(self, bot: PB_Bot):
-        @property
-        def get_player(ctx: CustomContext):
-            return bot.wavelink.get_player(ctx.guild.id, cls=Player)
-
-        CustomContext.player = get_player
-        self.bot: PB_Bot = bot
+        CustomContext.player = property(lambda ctx: bot.wavelink.get_player(ctx.guild.id, cls=Player))
+        self.bot = bot
         bot.loop.create_task(self.start_nodes())
 
     async def cog_check(self, ctx: CustomContext):
@@ -156,15 +214,12 @@ class Music(commands.Cog):
         if isinstance(event, (wavelink.TrackEnd, wavelink.TrackException)):
             await event.player.do_next()
 
-    # @commands.Cog.listener()
-    # async def on_voice_state_update(self, member, before, after):
-    #     if before.channel and not after.channel:  # the member was in a vc and the member left the vc
-    #         try:
-    #             controller = bot.controllers[member.guild.id]
-    #         except KeyError:  # there is no controller for the guild. Therefore there is no dj to check for.
-    #             return
-    #         if controller.current_dj == member:  # the member was the current dj for the controller for that guild
-    #             controller.current_dj = None
+    @commands.Cog.listener()
+    async def on_voice_state_update(self, member, before, after):
+        if before.channel and not after.channel:  # the member was in a vc and the member left the vc
+            player = self.bot.wavelink.get_player(member.guild.id, cls=Player)
+            if member.id == player.dj:
+                player.dj = None
 
     @commands.command()
     async def connect(self, ctx: CustomContext, *, voice_channel: discord.VoiceChannel = None):
@@ -182,12 +237,47 @@ class Music(commands.Cog):
         await ctx.send(f"Connected to **`{voice_channel.name}`**.")
 
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def player(self, ctx: CustomContext):
         """
         Opens up the player menu.
         """
         await utils.PlayerMenu(delete_message_after=True).start(ctx)
+
+    @is_playing()
+    @has_to_be_privileged_even_if_not_locked()
+    @commands.command()
+    async def djlock(self, ctx: CustomContext):
+        """
+        Locks or unlocks the player.
+        """
+        if ctx.player.is_locked:
+            ctx.player.is_locked = False
+            return await ctx.send("Unlocked music. Anyone can control the player.")
+        ctx.player.is_locked = True
+        await ctx.send("Locked music. Only admins and the DJ can control the player.")
+
+    @is_playing()
+    @has_to_be_privileged_even_if_not_locked()
+    @commands.command()
+    async def swapdj(self, ctx: CustomContext, member: discord.Member):
+        """
+        Swaps the DJ to someone else in the voice channel.
+
+        `member` - The member.
+        """
+        if member.bot:
+            return await ctx.send("You cannot swap the DJ to a bot.")
+        if member.id == ctx.player.dj:
+            return await ctx.send("This person is already the DJ.")
+        if not member.voice:
+            return await ctx.send("This person isn't in a voice channel.")
+        if member.voice.channel.id != ctx.player.channel_id:
+            return await ctx.send("This person isn't in the same voice channel as me.")
+
+        ctx.player.dj = member.id
+        await ctx.send(f"{member.mention} is now the DJ.")
 
     @commands.group(invoke_without_command=True, aliases=["sq"])
     async def songqueue(self, ctx: CustomContext, limit: int = None):
@@ -202,6 +292,7 @@ class Music(commands.Cog):
             source = [(number, track) for number, track in enumerate(ctx.player.queue[:limit], start=1)]
         await menus.MenuPages(utils.QueueSource(source, ctx.player)).start(ctx)
 
+    @is_privileged()
     @songqueue.command()
     async def add(self, ctx: CustomContext, *, query: str):
         """
@@ -209,6 +300,7 @@ class Music(commands.Cog):
         """
         await ctx.invoke(ctx.bot.get_command("play"), query=query)
 
+    @is_privileged()
     @songqueue.command()
     async def remove(self, ctx: CustomContext, *, query: str):
         """
@@ -227,6 +319,7 @@ class Music(commands.Cog):
                     ctx.player.queue_position -= 1
         await ctx.send(f"Removed all songs with the name `{track}` from the queue. Queue length: `{len(ctx.player.queue)}`")
 
+    @is_privileged()
     @commands.command()
     async def play(self, ctx: CustomContext, *, query: str):
         """
@@ -241,20 +334,23 @@ class Music(commands.Cog):
         if not query_results:
             return await ctx.send(f"Could not find any songs with that query.")
 
+        if not ctx.player.session_started:
+            return await ctx.player.start(ctx, query_results)
+
         if isinstance(query_results, wavelink.TrackPlaylist):
             for track in query_results.tracks:
                 track = Track(track.id, track.info, requester=ctx.author)
                 ctx.player.queue.append(track)
-            await ctx.send(f"Added playlist `{query_results.data['playlistInfo']['name']}` with `{len(query_results.tracks)}` songs to the queue. Queue length: `{len(ctx.player.queue)}`")
+            playlist_name = query_results.data['playlistInfo']['name']
+            await ctx.send(f"Added playlist `{playlist_name}` with `{len(query_results.tracks)}` songs to the queue. "
+                           f"Queue length: `{len(ctx.player.queue)}`")
         else:
             track = Track(query_results[0].id, query_results[0].info, requester=ctx.author)
             ctx.player.queue.append(track)
             await ctx.send(f"Added `{track}` to the queue. Queue length: `{len(ctx.player.queue)}`")
 
-        if not ctx.player.session_started:
-            await ctx.player.start(ctx)
-
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def resume(self, ctx: CustomContext):
         """
@@ -266,6 +362,7 @@ class Music(commands.Cog):
         await ctx.send("Resuming...")
 
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def pause(self, ctx: CustomContext):
         """
@@ -277,6 +374,7 @@ class Music(commands.Cog):
         await ctx.send("Paused the player.")
 
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def skip(self, ctx: CustomContext):
         """
@@ -286,6 +384,7 @@ class Music(commands.Cog):
         await ctx.message.add_reaction("✅")
 
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def previous(self, ctx: CustomContext):
         """
@@ -294,6 +393,7 @@ class Music(commands.Cog):
         await ctx.player.do_previous()
         await ctx.message.add_reaction("✅")
 
+    @is_privileged()
     @commands.command()
     async def volume(self, ctx: CustomContext, volume: int = None):
         """
@@ -308,6 +408,7 @@ class Music(commands.Cog):
         await ctx.send(f"Set the volume to `{volume}`.")
 
     @is_playing()
+    @is_privileged()
     @commands.command(aliases=["eq", "setequalizer", "seteq"])
     async def equalizer(self, ctx: CustomContext, *, equalizer: str):
         """
@@ -337,6 +438,7 @@ class Music(commands.Cog):
         await ctx.send(f"Set the equalizer to `{equalizer}`.")
 
     @is_playing()
+    @is_privileged()
     @commands.command(aliases=["fastfwd"])
     async def fastforward(self, ctx: CustomContext, seconds: int):
         """
@@ -349,6 +451,7 @@ class Music(commands.Cog):
         await ctx.send(f"Fast forwarded `{seconds}` seconds. Current position: `{humanize.precisedelta(datetime.timedelta(milliseconds=seek_position))}`")
 
     @is_playing()
+    @is_privileged()
     @commands.command()
     async def rewind(self, ctx: CustomContext, seconds: int):
         """
@@ -360,6 +463,7 @@ class Music(commands.Cog):
         await ctx.player.seek(seek_position)
         await ctx.send(f"Rewinded `{seconds}` seconds. Current position: `{humanize.precisedelta(datetime.timedelta(milliseconds=seek_position))}`")
 
+    @is_privileged()
     @commands.command(aliases=["dc"])
     async def disconnect(self, ctx: CustomContext):
         """
