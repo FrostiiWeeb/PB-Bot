@@ -76,8 +76,8 @@ class PB_Bot(commands.Bot):
         self.embed_colour = EMBED_COLOUR
 
         # database connections
-        self.pool = asyncio.get_event_loop().run_until_complete(asyncpg.create_pool(**config["postgresql"]))
-        self.redis = asyncio.get_event_loop().run_until_complete(aioredis.create_redis_pool(config["redis"]))
+        self.pool = self.loop.run_until_complete(asyncpg.create_pool(**config["postgresql"]))
+        self.redis = self.loop.run_until_complete(aioredis.create_redis_pool(config["redis"]))
 
         # cache
         self.cache = Cache(self)
