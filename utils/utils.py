@@ -13,6 +13,7 @@ import typing
 import textwrap
 
 from contextlib import suppress
+from aiohttp import InvalidURL
 
 
 # helper functions
@@ -568,6 +569,76 @@ class StripCodeblocks(commands.Converter):
             return match.group(1)
         # couldn't match
         return argument
+
+
+class ImageConverter(commands.Converter):
+    def __init__(self, bot):
+        self.bot = bot
+
+    async def _convert(self, message: discord.Message, argument: str):
+        # hierarchy:
+        # members
+        # users
+        # emojis
+        # unicode emojis
+        # links
+        # attachments
+
+        ctx = await self.bot.get_context(message)
+
+        if argument:  # no need to check if x is in the message if x is nothing
+            # members
+            with suppress(commands.BadArgument):
+                return await (await commands.MemberConverter().convert(ctx, argument)).avatar_url_as(format="png").read()
+
+            # users
+            with suppress(commands.BadArgument):
+                return await (await commands.UserConverter().convert(ctx, argument)).avatar_url_as(format="png").read()
+
+            # emojis
+            with suppress(commands.BadArgument):
+                return await (await commands.PartialEmojiConverter().convert(ctx, argument)).url.read()
+
+            # unicode emojis
+            url = f"https://twemoji.maxcdn.com/v/latest/72x72/{ord(argument[0]):x}.png"
+            async with self.bot.session.get(url) as r:
+                if r.status in range(200, 300):
+                    return await r.read()
+
+            # embedded images (links)
+            is_image = re.compile(r"image/.+", flags=re.IGNORECASE)
+            with suppress(InvalidURL):
+                async with self.bot.session.get(argument) as r:
+                    if r.status in range(200, 300) and is_image.fullmatch(r.headers["Content-Type"]):
+                        return await r.read()
+
+        # attachments
+        if message.attachments:
+            for attachment in message.attachments:
+                if attachment.height or attachment.width:  # is an image
+                    return await attachment.read()
+
+        return
+
+    async def convert(self, ctx: commands.Context, argument: str):
+        # invocation message
+        if image := await self._convert(ctx.message, argument):
+            return image
+
+        # message link
+        if argument:
+            with suppress(commands.BadArgument):
+                message = await commands.MessageConverter().convert(ctx, argument)
+                if image := await self._convert(message, message.content):
+                    return image
+
+        # referenced message (reply)
+        if ctx.message.reference and isinstance(ctx.message.reference.resolved, discord.Message):
+            if image := await self._convert(ctx.message.reference.resolved, ctx.message.reference.resolved.content):
+                return image
+
+        # fallback
+        return await ctx.author.avatar_url_as(format="png").read()
 
 
 # game classes
