@@ -1,6 +1,5 @@
 import discord
 import polaroid
-import typing
 
 from discord.ext import commands
 from io import BytesIO
@@ -20,11 +19,11 @@ class ImageManip(commands.Cog):
                 image = polaroid.Image(image)
                 func = getattr(image, func)
                 await ctx.bot.loop.run_in_executor(None, func, *args, **kwargs)
-            embed, file = self.build_embed(ctx, image, filename=filename, elapsed=sw.elapsed)
+            embed, file = await self.build_embed(ctx, image, filename=filename, elapsed=sw.elapsed)
             await ctx.send(embed=embed, file=file)
 
     @staticmethod
-    def build_embed(ctx: CustomContext, image, *, filename: str, elapsed: int):
+    async def build_embed(ctx: CustomContext, image: polaroid.Image, *, filename: str, elapsed: int):
         saved_bytes = await ctx.bot.loop.run_in_executor(None, image.save_bytes)
         file = discord.File(BytesIO(saved_bytes), filename=f"{filename}.png")
         embed = discord.Embed(colour=ctx.bot.embed_colour)
