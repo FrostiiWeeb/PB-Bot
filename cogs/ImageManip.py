@@ -25,7 +25,7 @@ class ImageManip(commands.Cog):
 
     @staticmethod
     def build_embed(ctx: CustomContext, image, *, filename: str, elapsed: int):
-        file = discord.File(BytesIO(await ctx.bot.loop.run_in_executor(None, image.save_bytes())), filename=f"{filename}.png")
+        file = discord.File(BytesIO(await ctx.bot.loop.run_in_executor(None, image.save_bytes)), filename=f"{filename}.png")
         embed = discord.Embed(colour=ctx.bot.embed_colour)
         embed.set_author(name=ctx.author, icon_url=ctx.author.avatar_url)
         embed.set_image(url=f"attachment://{filename}.png")
