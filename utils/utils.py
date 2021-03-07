@@ -575,6 +575,8 @@ class ImageConverter(commands.Converter):
     def __init__(self, bot):
         self.bot = bot
 
+    image_regex = re.compile(r"image/.+", flags=re.IGNORECASE)
+
     async def _convert(self, message: discord.Message, argument: str):
         # hierarchy:
         # members
@@ -606,10 +608,9 @@ class ImageConverter(commands.Converter):
                     return await r.read()
 
             # embedded images (links)
-            is_image = re.compile(r"image/.+", flags=re.IGNORECASE)
             with suppress(InvalidURL):
                 async with self.bot.session.get(argument) as r:
-                    if r.status in range(200, 300) and is_image.fullmatch(r.headers["Content-Type"]):
+                    if r.status in range(200, 300) and ImageConverter.image_regex.fullmatch(r.headers["Content-Type"]):
                         return await r.read()
 
         # attachments
