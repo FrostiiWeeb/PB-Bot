@@ -2,6 +2,7 @@ import discord
 import wavelink
 import humanize
 import datetime
+import random
 
 from discord.ext import commands, menus
 from contextlib import suppress
@@ -41,6 +42,9 @@ class Player(wavelink.Player):
         self.session_chan = None
         self.is_locked = False
         self.dj = None
+
+        self.repeat = False
+        self.loop = False
 
         self.queue = []
         self.menus = []
@@ -93,11 +97,18 @@ class Player(wavelink.Player):
         with suppress((discord.Forbidden, discord.HTTPException, AttributeError)):
             await self.now_playing.delete()
 
+        if self.repeat:
+            self.queue_position -= 1
+
         try:
             song = self.queue[self.queue_position]
         except IndexError:  # There are no more songs in the queue.
-            await self.destroy()
-            return
+            if self.loop:
+                self.queue_position = 0
+                song = self.queue[self.queue_position]
+            else:
+                await self.destroy()
+                return
 
         self.queue_position += 1
 
@@ -436,6 +447,43 @@ class Music(commands.Cog):
             return await ctx.send(f"Invalid equalizer provided. Available equalizers:\n\n{eqs}")
         await ctx.player.set_eq(eq)
         await ctx.send(f"Set the equalizer to `{equalizer}`.")
+
+    @is_playing()
+    @is_privileged()
+    @commands.command(aliases=["mix"])
+    async def shuffle(self, ctx):
+        """
+        Shuffles the queue.
+        """
+        random.shuffle(ctx.player.queue)
+        with suppress(discord.HTTPException):
+            await ctx.message.add_reaction("✅")
+
+    @is_playing()
+    @is_privileged()
+    @commands.command()
+    async def repeat(self, ctx):
+        """
+        Repeats the current song when finished.
+        """
+        if ctx.player.repeat:
+            ctx.player.repeat = False
+            return await ctx.send("Repeat is now set to OFF.")
+        ctx.player.repeat = True
+        await ctx.send("Repeat is now set to ON.")
+
+    @is_playing()
+    @is_privileged()
+    @commands.command()
+    async def loop(self, ctx):
+        """
+        Loops the queue.
+        """
+        if ctx.player.loop:
+            ctx.player.loop = False
+            return await ctx.send("Stopped looping the queue.")
+        ctx.player.loop = True
+        await ctx.send("Started looping the queue.")
 
     @is_playing()
     @is_privileged()
