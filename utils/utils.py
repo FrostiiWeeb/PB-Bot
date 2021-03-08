@@ -609,15 +609,14 @@ class ImageConverter(commands.Converter):
 
             # embedded images (links)
             with suppress(InvalidURL):
-                async with self.bot.session.get(argument) as r:
+                async with self.bot.session.get(argument.strip("<>")) as r:
                     if r.status in range(200, 300) and ImageConverter.image_regex.fullmatch(r.headers["Content-Type"]):
                         return await r.read()
 
         # attachments
-        if message.attachments:
-            for attachment in message.attachments:
-                if attachment.height or attachment.width:  # is an image
-                    return await attachment.read()
+        for attachment in message.attachments:
+            if attachment.height or attachment.width:  # is an image
+                return await attachment.read()
 
         return
 
