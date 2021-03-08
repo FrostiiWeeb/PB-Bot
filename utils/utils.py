@@ -158,7 +158,8 @@ class HistorySource(menus.ListPageSource):
                         f"Status: {page['status'].title()}\n"
                         f"Created: {humanize.naturaldate(dateparser.parse(page['created_at'])).title()}\n"
                         f"Impact: {page['impact'].title()}" 
-                        f"```")
+                        f"```",
+            colour=menu.ctx.bot.embed_colour)
         embed.set_footer(text=f"Page {menu.current_page + 1}/{self.get_max_pages()}")
         return embed
 
