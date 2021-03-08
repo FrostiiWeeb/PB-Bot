@@ -71,7 +71,7 @@ class ErrorHandling(commands.Cog):
         elif isinstance(error, commands.MissingRequiredArgument):
             embed = discord.Embed(
                 title=f"`{str(error.param).split(':')[0]}` is a required argument that is missing.",
-                description=f"For more information on what arguments this command requires, do `{ctx.clean_prefix}help {ctx.command}`.",
+                description=f"For more information on what arguments this command requires, do `{ctx.clean_prefix}help {ctx.command}`",
                 colour=ctx.bot.embed_colour)
             await ctx.send(embed=embed)
 
@@ -81,7 +81,7 @@ class ErrorHandling(commands.Cog):
         elif isinstance(error, (commands.BadArgument, commands.BadUnionArgument)):
             embed = discord.Embed(
                 title=str(error),
-                description=f"For more information on what arguments this command requires, do `{ctx.clean_prefix}help {ctx.command}`.",
+                description=f"For more information on what arguments this command requires, do `{ctx.clean_prefix}help {ctx.command}`",
                 colour=ctx.bot.embed_colour)
             await ctx.send(embed=embed)
 
